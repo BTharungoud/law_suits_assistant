@@ -74,13 +74,21 @@ export const CaseCard: React.FC<CaseCardProps> = ({ case: caseData, onClick }) =
         </div>
       </div>
 
-      <div className="case-explanation">
-        <p className="explanation-text">{getExplanation()}</p>
-      </div>
 
-      <p className="priority-reasoning">
-        <strong>Scoring Summary:</strong> {caseData.priority_reasoning}
-      </p>
+      <div className="case-summary">
+        <p className="summary-text">{getExplanation()}</p>
+        <ul style={{ margin: '10px 0 0 18px', padding: 0, color: '#1e40af', fontSize: 13 }}>
+          {caseData.legal_merit.key_factors.map((factor, idx) => (
+            <li key={idx}>{factor}</li>
+          ))}
+          {caseData.damages_potential.key_factors.map((factor, idx) => (
+            <li key={`d${idx}`}>{factor}</li>
+          ))}
+          {caseData.case_complexity.key_factors.map((factor, idx) => (
+            <li key={`c${idx}`}>{factor}</li>
+          ))}
+        </ul>
+      </div>
 
       <div className="case-footer">
         <button className="view-details-btn">View Details →</button>

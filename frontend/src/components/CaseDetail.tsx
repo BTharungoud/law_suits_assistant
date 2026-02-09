@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { CaseEvaluation } from '../services/api';
+import React, { useState, useRef, useEffect } from 'react';
+import { CaseEvaluation, chatCase } from '../services/api';
 import './CaseDetail.css';
 
 interface CaseDetailProps {
@@ -8,7 +8,16 @@ interface CaseDetailProps {
 }
 
 export const CaseDetail: React.FC<CaseDetailProps> = ({ case: caseData, onClose }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'legal_merit' | 'damages' | 'complexity'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'legal_merit' | 'damages' | 'complexity' | 'chat'>('overview');
+  const [messages, setMessages] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const chatWindowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!chatWindowRef.current) return;
+    // scroll to bottom when messages change
+    chatWindowRef.current.scrollTop = chatWindowRef.current.scrollHeight;
+  }, [messages]);
 
   return (
     <div className="case-detail-overlay" onClick={onClose}>
@@ -43,36 +52,58 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ case: caseData, onClose 
           >
             Complexity
           </button>
+          <button
+            className={`tab ${activeTab === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveTab('chat')}
+          >
+            Chat
+          </button>
         </div>
 
         <div className="modal-content">
           {activeTab === 'overview' && (
-            <div className="overview-tab">
-              <div className="score-grid">
-                <div className="score-box">
-                  <label>Priority Score</label>
-                  <div className="large-score">{caseData.priority_score.toFixed(1)}</div>
-                  <span className="rank-badge">{caseData.priority_rank}</span>
+            <div className="overview-flex-col">
+              <div className="overview-summary-col">
+                <div className="priority-section">
+                  <h3>Priority Analysis</h3>
+                  <p className="reasoning">{caseData.priority_reasoning}</p>
+                  <div className="formula-note">
+                    <strong>Calculation:</strong> (Legal Merit × 0.4) + (Damages × 0.4) - (Complexity × 0.2) = {caseData.priority_score.toFixed(2)}
+                  </div>
                 </div>
-                <div className="score-box">
-                  <label>Legal Merit</label>
-                  <div className="large-score">{caseData.legal_merit.score.toFixed(1)}</div>
-                </div>
-                <div className="score-box">
-                  <label>Damages Potential</label>
-                  <div className="large-score">{caseData.damages_potential.score.toFixed(1)}</div>
-                </div>
-                <div className="score-box">
-                  <label>Complexity</label>
-                  <div className="large-score">{caseData.case_complexity.score.toFixed(1)}</div>
+                <div className="case-summary" style={{marginTop: 12}}>
+                  <ul style={{ margin: '0 0 0 18px', padding: 0, color: '#1e40af', fontSize: 13 }}>
+                    {caseData.legal_merit.key_factors.map((factor, idx) => (
+                      <li key={idx}>{factor}</li>
+                    ))}
+                    {caseData.damages_potential.key_factors.map((factor, idx) => (
+                      <li key={`d${idx}`}>{factor}</li>
+                    ))}
+                    {caseData.case_complexity.key_factors.map((factor, idx) => (
+                      <li key={`c${idx}`}>{factor}</li>
+                    ))}
+                  </ul>
                 </div>
               </div>
-
-              <div className="priority-section">
-                <h3>Priority Analysis</h3>
-                <p className="reasoning">{caseData.priority_reasoning}</p>
-                <div className="formula-note">
-                  <strong>Calculation:</strong> (Legal Merit × 0.4) + (Damages × 0.4) - (Complexity × 0.2) = {caseData.priority_score.toFixed(2)}
+              <div style={{ minWidth: 0, flex: '0 0 340px' }}>
+                <div className="score-grid">
+                  <div className="score-box">
+                    <label>Priority Score</label>
+                    <div className="large-score">{caseData.priority_score.toFixed(1)}</div>
+                    <span className="rank-badge">{caseData.priority_rank}</span>
+                  </div>
+                  <div className="score-box">
+                    <label>Legal Merit</label>
+                    <div className="large-score">{caseData.legal_merit.score.toFixed(1)}</div>
+                  </div>
+                  <div className="score-box">
+                    <label>Damages Potential</label>
+                    <div className="large-score">{caseData.damages_potential.score.toFixed(1)}</div>
+                  </div>
+                  <div className="score-box">
+                    <label>Complexity</label>
+                    <div className="large-score">{caseData.case_complexity.score.toFixed(1)}</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -128,6 +159,53 @@ export const CaseDetail: React.FC<CaseDetailProps> = ({ case: caseData, onClose 
                     <li key={idx}>{factor}</li>
                   ))}
                 </ul>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'chat' && (
+            <div className="detail-section chat-section">
+              <h3>Chat about this case</h3>
+              <div className="chat-window" ref={chatWindowRef}>
+                {messages.length === 0 && (
+                  <div className="chat-empty">Ask a question about this case.</div>
+                )}
+                {messages.map((m, idx) => (
+                  <div key={idx} className={`chat-message ${m.role}`}>
+                    <div className="message-role">{m.role === 'user' ? 'You' : 'Assistant'}</div>
+                    <div className="message-text">{m.text}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="chat-input-row">
+                <textarea
+                  className="chat-input"
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  placeholder="Ask about legal merit, damages, complexity, or request clarifications..."
+                  rows={3}
+                />
+                <button
+                  className="send-btn"
+                  onClick={async () => {
+                    const msg = inputMessage.trim();
+                    if (!msg || sending) return;
+                    setSending(true);
+                    setMessages(prev => [...prev, { role: 'user', text: msg }]);
+                    setInputMessage('');
+                    try {
+                      const resp = await chatCase(caseData.case_id, msg);
+                      const answer = resp.data?.answer || 'No reply';
+                      setMessages(prev => [...prev, { role: 'assistant', text: answer }]);
+                    } catch (err) {
+                      setMessages(prev => [...prev, { role: 'assistant', text: `Error: ${String(err)}` }]);
+                    } finally {
+                      setSending(false);
+                    }
+                  }}
+                >
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
               </div>
             </div>
           )}

@@ -7,6 +7,7 @@
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  text-align: left;
 }
 
 .case-card:hover {
@@ -34,6 +35,7 @@
   font-weight: 700;
   color: #1f2937;
   word-wrap: break-word;
+  text-align: left;
 }
 
 .case-meta {
@@ -68,9 +70,9 @@
 
 .score-item {
   background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%);
-  padding: 14px 12px;
+  padding: 5px 5px;
   border-radius: 8px;
-  text-align: center;
+  text-align: left;
   border: 1px solid #e5e7eb;
   transition: all 0.2s;
 }
@@ -108,6 +110,7 @@
   padding: 12px;
   border-radius: 6px;
   margin-bottom: 12px;
+  text-align: left;
 }
 
 .explanation-text {
@@ -115,21 +118,27 @@
   font-size: 13px;
   color: #1e40af;
   line-height: 1.5;
+  text-align: left;
 }
 
-.priority-reasoning {
-  font-size: 13px;
-  color: #374151;
-  margin: 12px 0;
-  line-height: 1.6;
-  background: #fafafa;
-  padding: 10px;
+.case-summary {
+  background: #f0f9ff;
+  border-left: 4px solid #3b82f6;
+  padding: 12px;
   border-radius: 6px;
-  border-left: 3px solid #eab308;
+  margin-bottom: 12px;
+  overflow: hidden;
+  text-align: left;
 }
 
-.priority-reasoning strong {
-  color: #1f2937;
+.summary-text {
+  margin: 0;
+  font-size: 14px;
+  color: #1e40af;
+  line-height: 1.5;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  text-align: left;
 }
 
 .case-footer {

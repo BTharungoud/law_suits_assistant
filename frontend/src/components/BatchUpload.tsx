@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CaseMetadata, evaluateCasesBatch } from '../services/api';
+import { evaluateCasesBatch } from '../services/api';
 import './BatchUpload.css';
 
 interface BatchUploadProps {

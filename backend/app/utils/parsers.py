@@ -83,8 +83,12 @@ def extract_text_from_file(file_bytes: bytes, filename: str) -> str:
         Extracted text
         
     Raises:
-        ValueError: If file type is unsupported
+        ValueError: If file type is unsupported or file is empty
     """
+    # Validate file is not empty
+    if not file_bytes or len(file_bytes) == 0:
+        raise ValueError(f"File {filename} is empty or contains no data")
+    
     filename_lower = filename.lower()
     
     if filename_lower.endswith(".pdf"):

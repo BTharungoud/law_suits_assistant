@@ -3,10 +3,7 @@ import axios from 'axios';
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 const api = axios.create({
-  baseURL: API_BASE,
-  headers: {
-    'Content-Type': 'application/json'
-  }
+  baseURL: API_BASE
 });
 
 export interface CaseMetadata {
@@ -114,6 +111,15 @@ export const evaluateCasesBatch = async (
     metadataList.map(m => m.claimed_damages || null)
   ));
 
+  // Notify initial progress if callback provided
+  if (onProgress) {
+    try {
+      onProgress({ completed: 0, total: files.length, caseName: '' });
+    } catch (e) {
+      // ignore errors from callback
+    }
+  }
+
   return api.post<CaseRanking & { errors?: Array<{ index: number; file: string; error: string }> }>(
     '/evaluate-batch',
     formData,
@@ -148,6 +154,15 @@ export const clearAllCases = async () => {
 // Get disclaimer
 export const getDisclaimer = async () => {
   return api.get<{ disclaimer: string }>('/disclaimer');
+};
+
+// Chat with LLM about a specific case
+export const chatCase = async (caseId: string, message: string) => {
+  const form = new FormData();
+  form.append('message', message);
+  return api.post<{ answer: string }>(`/cases/${caseId}/chat`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
 };
 
 export default api;

@@ -4,6 +4,10 @@ Coordinates file parsing, LLM evaluation, and scoring logic.
 """
 
 import uuid
+import hashlib
+import json
+import os
+import re
 from typing import Dict, Any, Optional
 from app.models.case import CaseMetadata, CaseEvaluation, ScoreExplanation
 from app.services.llm_adapter import get_llm_provider
@@ -24,6 +28,35 @@ class CaseEvaluator:
     def __init__(self):
         """Initialize evaluator."""
         self.llm_provider = get_llm_provider()
+        # Simple in-memory cache to ensure repeat evaluations for identical inputs are deterministic
+        # Keyed by sha256(case_text + canonicalized metadata)
+        self._cache: Dict[str, CaseEvaluation] = {}
+        self._cache_raw: Dict[str, Dict[str, Any]] = {}
+
+        # Persistent cache file (kept in backend/.cache)
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        cache_dir = os.path.join(base, '.cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        self._cache_path = os.path.join(cache_dir, 'eval_cache.json')
+
+        # Try to load existing cache
+        if os.path.exists(self._cache_path):
+            try:
+                with open(self._cache_path, 'r', encoding='utf-8') as cf:
+                    raw = json.load(cf)
+                for k, v in raw.items():
+                    try:
+                        # Reconstruct model from saved raw data
+                        model = CaseEvaluation.model_validate(v)
+                        self._cache[k] = model
+                        self._cache_raw[k] = v
+                    except Exception:
+                        # Skip entries that cannot be validated
+                        continue
+            except Exception:
+                # Non-fatal: if cache is corrupt, ignore
+                self._cache = {}
+                self._cache_raw = {}
     
     async def evaluate_case_from_file(
         self,
@@ -63,34 +96,87 @@ class CaseEvaluator:
         Returns:
             CaseEvaluation with scores and reasoning
         """
-        case_id = str(uuid.uuid4())[:8]
+        # Prepare metadata dict and deterministic case id based on content to avoid inconsistent re-evaluations
+        metadata_dict = metadata.model_dump()
+        meta_json = json.dumps(metadata_dict, sort_keys=True, ensure_ascii=False)
+        digest_source = (case_text or '') + meta_json
+        digest = hashlib.sha256(digest_source.encode('utf-8')).hexdigest()
+        cache_key = digest
+
+        # If we've already evaluated this exact input, return cached result
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        case_id = digest[:8]
         
         # Call LLM for evaluation
-        metadata_dict = metadata.model_dump()
         llm_response = await self.llm_provider.evaluate_case(case_text, metadata_dict)
         
         # Extract scores from LLM response
         legal_merit_data = llm_response.get("legal_merit", {})
         damages_data = llm_response.get("damages_potential", {})
         complexity_data = llm_response.get("case_complexity", {})
+
+        # Normalization helpers: ensure key_factors are lists of short strings
+        def _normalize_key_factors(value):
+            if value is None:
+                return []
+            # If already a list, ensure items are strings
+            if isinstance(value, list):
+                return [str(v).strip() for v in value if v is not None and str(v).strip()]
+            # If it's a dict, try to pull a 'key_factors' key
+            if isinstance(value, dict):
+                return _normalize_key_factors(value.get('key_factors'))
+            # If it's a string, split on newlines or bullet markers
+            if isinstance(value, str):
+                s = value.strip()
+                # Common bullet separators
+                parts = []
+                if '\n' in s:
+                    parts = [p.strip(" \t\-\u2022") for p in s.split('\n') if p.strip()]
+                elif ';' in s:
+                    parts = [p.strip() for p in s.split(';') if p.strip()]
+                elif '•' in s:
+                    parts = [p.strip() for p in s.split('•') if p.strip()]
+                else:
+                    # Fallback: split into short sentences (by period)
+                    parts = [p.strip() for p in re.split(r'(?<=[\.\?\!])\s+', s) if p.strip()]
+
+                # Keep only shortish factors (<= 200 chars)
+                factors = [p for p in parts if len(p) > 0 and len(p) <= 200]
+                # If none found, return the whole string as one factor (trimmed)
+                return factors if factors else ([s] if s else [])
+
+        # If key_factors are missing, try to extract top 3 short phrases from reasoning
+        def _ensure_factors(data):
+            reasoning = data.get('reasoning', '') if isinstance(data, dict) else ''
+            raw_factors = data.get('key_factors') if isinstance(data, dict) else None
+            normalized = _normalize_key_factors(raw_factors)
+            if normalized:
+                return normalized
+            # Try to extract from reasoning: split into sentences and take first 3
+            if isinstance(reasoning, str) and reasoning.strip():
+                sents = [p.strip() for p in re.split(r'(?<=[\.\?\!])\s+', reasoning) if p.strip()]
+                return sents[:3]
+            return []
         
         # Build score objects
         legal_merit = ScoreExplanation(
             score=float(legal_merit_data.get("score", 5)),
             reasoning=legal_merit_data.get("reasoning", "Unable to determine"),
-            key_factors=legal_merit_data.get("key_factors", [])
+            key_factors=_ensure_factors(legal_merit_data)
         )
         
         damages_potential = ScoreExplanation(
             score=float(damages_data.get("score", 5)),
             reasoning=damages_data.get("reasoning", "Unable to determine"),
-            key_factors=damages_data.get("key_factors", [])
+            key_factors=_ensure_factors(damages_data)
         )
         
         case_complexity = ScoreExplanation(
             score=float(complexity_data.get("score", 5)),
             reasoning=complexity_data.get("reasoning", "Unable to determine"),
-            key_factors=complexity_data.get("key_factors", [])
+            key_factors=_ensure_factors(complexity_data)
         )
         
         # Compute priority score using formula
@@ -132,7 +218,9 @@ class CaseEvaluator:
             priority_reasoning=priority_reasoning,
             created_at=datetime.utcnow()
         )
-        
+        # Store in evaluator cache so repeated requests with same content are deterministic
+        self._cache[cache_key] = evaluation
+
         return evaluation
     
     def _build_priority_reasoning(

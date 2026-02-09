@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { CaseUpload } from './components/CaseUpload';
 import { BatchUpload } from './components/BatchUpload';
 import { CaseList } from './components/CaseList';
